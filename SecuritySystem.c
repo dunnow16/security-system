@@ -25,12 +25,12 @@
 #define ORANGE_PIN BIT7;
 #define RTC_Address 0x68 // 0b01101000
 static volatile uint8_t seconds, minutes, hours, day, date, month, year, offset,
-		tempMSB, tempLSB, state[3], InterruptIterations;
+		tempMSB, tempLSB, state[3], InterruptIterations, BuzzerIterations;
 static volatile double temp;
 static volatile char refChar, outputChar, attemptCode[4], password[4] = { '1',
 		'2', '3', '4' };
 static volatile bool AlarmArmed, AlarmTriggered, isWindowOpen, isDoorOpen,
-		isDoorLocked, MotionDetected;
+		isDoorLocked, MotionDetected, BuzzerShortDelay;
 
 /* I2C Master Configuration Parameter */
 const eUSCI_I2C_MasterConfig i2cConfig = { EUSCI_B_I2C_CLOCKSOURCE_SMCLK, // SMCLK Clock Source
@@ -104,15 +104,16 @@ void StatusLEDInit() {
 }
 
 /* Initialize Alarm LED */
-void ALarmLEDInit() {
-	P1DIR |= BIT0; /* Configure P2.0 as output */
+void AlarmLEDInit() {
+	P1DIR |= BIT0; /* Configure P1.0 as output */
 
-	P1OUT & BIT0; /* Turn LEDs off initially */
+	P1OUT & BIT0; /* Turn LED off initially */
 }
 
-/* Toggles Alarm LED */
-void ToggleLEDInit() {
-	P1DIR ^= BIT0;
+/* Initialize Piezo Alarm Buzzer */
+void BuzzerInit() {
+	P5DIR |= BIT1; /* Configure P1.0 as output */
+	P5OUT &= BIT1; /* Turn Buzzer off initially */
 }
 
 /* Initializes MSP432 SysTick timer */
@@ -196,6 +197,16 @@ void WDTInit() {
 
 	// Start WDT
 	WDT_A_startTimer();
+}
+
+/* Toggles Alarm LED */
+void ToggleAlarmLED() {
+	P1DIR ^= BIT0;
+}
+
+/* Toggles Piezo Buzzer */
+void ToggleBuzzer() {
+	P5DIR ^= BIT1;
 }
 
 /* Creates delay using SysTick timer */
@@ -385,6 +396,8 @@ void DisarmAlarm() {
 	P2OUT |= BIT0; 	// Turn on red LED
 	P2OUT &= ~BIT1; 	// Turn off green LED
 	P1OUT &= ~BIT0; 	// Turn off alarm LED
+	P5OUT &= ~BIT1;		// Turn off Buzzer
+	BuzzerIterations = 0;	//reset buzzer iterations
 }
 
 void ArmAlarm() {
@@ -444,7 +457,7 @@ void ReadPIRSensors() {
 		LCDShowDetected();
 	} else if (test == 0 && MotionDetected) {
 		MotionDetected = false;
-		ST7735_FillRect(27, 110, 106, 20, ST7735_BLACK);	//Clears motion detected warning
+		ST7735_FillRect(27, 110, 106, 20, ST7735_BLACK); //Clears motion detected warning
 	}
 }
 
@@ -646,7 +659,7 @@ void setDateTimeInfo() {
 }
 
 void DisplayMenu() {
-	ST7735_FillRect(0, 16, 160, 112, ST7735_BLACK);	//clear area below date time info
+	ST7735_FillRect(0, 16, 160, 94, ST7735_BLACK);//clear area below date time info
 
 	ST7735_DrawString(2, 4, "1: Set Date/Time Info", ST7735_WHITE);
 	ST7735_DrawString(2, 5, "2: Arm/Disarm Alarm", ST7735_WHITE);
@@ -769,10 +782,10 @@ int StoreAttemptChar(char input, int passWordIndex) {
 	return passWordIndex;
 }
 
-/* Checks if passowrd is correct, returns true if match */
+/* Checks if password is correct, returns true if match */
 bool PasswordCheck(char message[22]) {
 	int passWordIndex = 0, x = 48;
-	ST7735_FillRect(0, 16, 160, 112, ST7735_BLACK);	//clear area below date time info
+	ST7735_FillRect(0, 16, 160, 94, ST7735_BLACK);//clear area below date time info
 	ST7735_DrawString(3, 3, message, ST7735_WHITE);
 	while (1) {
 		WDT_A_clearTimer();	// clear watch dog timer
@@ -906,20 +919,40 @@ void DisplaySensorStatus() {
 		tempWindow = isWindowOpen;
 		CheckSensorStatus();
 		if (tempDoor != isDoorOpen) {
-			if (isDoorOpen == true) {
-				ST7735_FillRect(0, 30, 79, 112, ST7735_RED);
+			if (isDoorOpen) {
+				if (MotionDetected) {
+					ST7735_FillRect(0, 30, 79, 80, ST7735_RED);
+					ST7735_FillRect(0, 110, 27, 18, ST7735_RED);
+				} else {
+					ST7735_FillRect(0, 30, 79, 112, ST7735_RED);
+				}
 				WriteOpen(30, 75);
 			} else {
-				ST7735_FillRect(0, 30, 79, 112, ST7735_GREEN);
+				if (MotionDetected) {
+					ST7735_FillRect(0, 30, 79, 80, ST7735_GREEN);
+					ST7735_FillRect(0, 110, 27, 18, ST7735_GREEN);
+				} else {
+					ST7735_FillRect(0, 30, 79, 112, ST7735_GREEN);
+				}
 				WriteClosed(24, 75);
 			}
 		}
 		if (tempWindow != isWindowOpen) {
-			if (isWindowOpen == true) {
-				ST7735_FillRect(81, 30, 79, 112, ST7735_RED);
+			if (isWindowOpen) {
+				if (MotionDetected) {
+					ST7735_FillRect(81, 30, 79, 80, ST7735_RED);
+					ST7735_FillRect(133, 110, 27, 18, ST7735_RED);
+				} else {
+					ST7735_FillRect(81, 30, 79, 112, ST7735_RED);
+				}
 				WriteOpen(110, 75);
 			} else {
-				ST7735_FillRect(81, 30, 79, 112, ST7735_GREEN);
+				if (MotionDetected) {
+					ST7735_FillRect(81, 30, 79, 80, ST7735_GREEN);
+					ST7735_FillRect(133, 110, 27, 18, ST7735_GREEN);
+				} else {
+					ST7735_FillRect(81, 30, 79, 112, ST7735_GREEN);
+				}
 				WriteClosed(104, 75);
 			}
 		}
@@ -945,12 +978,23 @@ void T32_INT1_IRQHandler(void) {
 			AlarmTriggered = true;
 		}
 		if (AlarmTriggered) {
-			//Sound Buzzer
+			if (BuzzerIterations > 1000) {
+				BuzzerShortDelay ?
+						(BuzzerShortDelay = false) : (BuzzerShortDelay = true);
+				BuzzerIterations = 0;
+				BuzzerIterations++;
+			}
+			if (BuzzerShortDelay) {
+				ToggleBuzzer();
+			} else if (BuzzerIterations % 2 == 0) {
+				ToggleBuzzer();
+			}
 		}
 		MAP_Timer32_setCount(TIMER32_BASE, 48000);	//set 1ms interrupt
 		if (InterruptIterations <= 5000) {
 			return;
 		}
+
 	} else {
 		MAP_Timer32_setCount(TIMER32_BASE, 240000000);	//set 5s interrupt
 	}
@@ -987,8 +1031,8 @@ int main(void) {
 
 	/* Initialize Alarm */
 	StatusLEDInit();
-	//AlarmLEDInit();
-	//BuzzerInit();
+	AlarmLEDInit();
+	BuzzerInit();
 	DisarmAlarm();
 
 	/* Initialize Sensors */
@@ -1018,7 +1062,8 @@ int main(void) {
 		DetermineChar();	// determines character based on key scanned in
 		if (outputChar != ' ') {		// if input is determined
 			switch (outputChar) {
-				/* Set Date & Time Info */
+
+			/* Set Date & Time Info */
 			case '1':
 				setDateTimeInfo();
 				DisplayMenu();
@@ -1027,7 +1072,7 @@ int main(void) {
 
 				/* Arm or Disarm Alarm */
 			case '2':
-				if (PasswordCheck("Enter 4 Digit Password") == true) {
+				if (PasswordCheck("Enter 4 Digit Password")) {
 					ToggleAlarmState();
 				}
 				DisplayMenu();
@@ -1036,12 +1081,13 @@ int main(void) {
 				/* Display Sensor Status' */
 			case '3':
 				DisplaySensorStatus();
+				ST7735_FillScreen(0x0000);            // set screen to black
 				DisplayMenu();
 				break;
 
 				/* Lock or Unlock Door */
 			case '4':
-				if (PasswordCheck("Enter 4 Digit Password") == true) {
+				if (PasswordCheck("Enter 4 Digit Password")) {
 					if (isDoorLocked) {
 						UnlockDoor();
 					} else {
@@ -1053,7 +1099,7 @@ int main(void) {
 
 				/* Change Password */
 			case '5':
-				if (PasswordCheck("Enter Current Password") == true) {
+				if (PasswordCheck("Enter Current Password")) {
 					ChangePassword();
 				}
 				DisplayMenu();
