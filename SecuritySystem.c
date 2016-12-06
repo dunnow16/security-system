@@ -112,7 +112,7 @@ void AlarmLEDInit() {
 
 /* Initialize Piezo Alarm Buzzer */
 void BuzzerInit() {
-	P5DIR |= BIT1; /* Configure P1.0 as output */
+	P5DIR |= BIT1; /* Configure P5.1 as output */
 	P5OUT &= BIT1; /* Turn Buzzer off initially */
 }
 
@@ -201,12 +201,12 @@ void WDTInit() {
 
 /* Toggles Alarm LED */
 void ToggleAlarmLED() {
-	P1DIR ^= BIT0;
+	P1OUT ^= BIT0;
 }
 
 /* Toggles Piezo Buzzer */
 void ToggleBuzzer() {
-	P5DIR ^= BIT1;
+	P5OUT ^= BIT1;
 }
 
 /* Creates delay using SysTick timer */
@@ -788,12 +788,12 @@ bool PasswordCheck(char message[22]) {
 	ST7735_FillRect(0, 16, 160, 94, ST7735_BLACK);//clear area below date time info
 	ST7735_DrawString(3, 3, message, ST7735_WHITE);
 	while (1) {
-		WDT_A_clearTimer();	// clear watch dog timer
+		WDT_A_clearTimer();				// clear watch dog timer
 		if (MenuButtonPressed()) {
 			return false;
 		}
-		scanKeys();			// read in and store keys
-		DetermineChar();	// determines character based on key scanned in
+		scanKeys();						// read in and store keys
+		DetermineChar();		// determines character based on key scanned in
 		if (outputChar != ' ') {		// if input is determined
 			passWordIndex = StoreAttemptChar(outputChar, passWordIndex);
 			ST7735_DrawCharS(x, 70, outputChar, ST7735_WHITE, ST7735_BLACK, 2);	// print key input
@@ -827,8 +827,8 @@ void LockDoor() {
 	int step = 0, i = 0;
 	/* Iterates forward through (half cycle x gear ratio) */
 	for (i = 0; i < (32 * 64); i++) {
-		step = CheckIndexForward(step);	//sets index to appropriate value
-		FullStep(step);	//shift through steps
+		step = CheckIndexForward(step);		//sets index to appropriate value
+		FullStep(step);		//shift through steps
 		++step;
 		SysTick_Delay(2);
 	}
@@ -974,19 +974,21 @@ void T32_INT1_IRQHandler(void) {
 	MAP_Timer32_clearInterruptFlag(TIMER32_BASE);
 	if (AlarmArmed) {
 		InterruptIterations++;
+		CheckSensorStatus();
 		if (isDoorOpen || isWindowOpen) {
 			AlarmTriggered = true;
 		}
 		if (AlarmTriggered) {
-			if (BuzzerIterations > 1000) {
+			if (BuzzerIterations >= 100) {
 				BuzzerShortDelay ?
 						(BuzzerShortDelay = false) : (BuzzerShortDelay = true);
+				ToggleAlarmLED();
 				BuzzerIterations = 0;
-				BuzzerIterations++;
 			}
+			BuzzerIterations++;
 			if (BuzzerShortDelay) {
 				ToggleBuzzer();
-			} else if (BuzzerIterations % 2 == 0) {
+			} else if (BuzzerIterations % 3 == 0) {
 				ToggleBuzzer();
 			}
 		}
