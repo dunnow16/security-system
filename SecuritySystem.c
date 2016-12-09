@@ -25,7 +25,8 @@
 #define ORANGE_PIN BIT7;
 #define RTC_Address 0x68 // 0b01101000
 static volatile uint8_t seconds, minutes, hours, day, date, month, year, offset,
-		tempMSB, tempLSB, state[3], InterruptIterations, BuzzerIterations;
+		tempMSB, tempLSB, state[3], InterruptIterations, BuzzerIterations,
+		LEDIterations;
 static volatile double temp;
 static volatile char refChar, outputChar, attemptCode[4], password[4] = { '1',
 		'2', '3', '4' };
@@ -393,16 +394,16 @@ bool MenuButtonPressed() {
 
 void DisarmAlarm() {
 	AlarmTriggered = false;
-	P2OUT |= BIT0; 	// Turn on red LED
-	P2OUT &= ~BIT1; 	// Turn off green LED
+	P2OUT &= ~BIT0; 	// Turn off red LED
+	P2OUT |= BIT1; 	// Turn on green LED
 	P1OUT &= ~BIT0; 	// Turn off alarm LED
 	P5OUT &= ~BIT1;		// Turn off Buzzer
 	BuzzerIterations = 0;	//reset buzzer iterations
 }
 
 void ArmAlarm() {
-	P2OUT |= BIT1; 	// Turn on green LED
-	P2OUT &= ~BIT0; 	// Turn off red LED
+	P2OUT &= ~BIT1; 	// Turn off green LED
+	P2OUT |= BIT0; 	// Turn on red LED
 }
 
 void ToggleAlarmState() {
@@ -666,6 +667,7 @@ void DisplayMenu() {
 	ST7735_DrawString(2, 6, "3: View Sensor Status", ST7735_WHITE);
 	ST7735_DrawString(2, 7, "4: Lock/Unlock Door", ST7735_WHITE);
 	ST7735_DrawString(2, 8, "5: Change Password", ST7735_WHITE);
+	ST7735_DrawString(2, 9, "6: View Records Log", ST7735_WHITE);
 }
 
 int BcdToDecimal(uint8_t hex) {
@@ -785,13 +787,21 @@ int StoreAttemptChar(char input, int passWordIndex) {
 /* Checks if password is correct, returns true if match */
 bool PasswordCheck(char message[22]) {
 	int passWordIndex = 0, x = 48;
+	int minuteTimer = minutes, minuteMismatch = 0;
 	ST7735_FillRect(0, 16, 160, 94, ST7735_BLACK);//clear area below date time info
 	ST7735_DrawString(3, 3, message, ST7735_WHITE);
-	while (1) {
-		WDT_A_clearTimer();				// clear watch dog timer
-		if (MenuButtonPressed()) {
-			return false;
+	while (!MenuButtonPressed()) {
+		if (minutes != minuteTimer) {
+			minuteMismatch++;
+			if (minuteMismatch >= 2) {
+				break;
+			}
+			minuteTimer = minutes;
 		}
+		WDT_A_clearTimer();				// clear watch dog timer
+		//if (MenuButtonPressed()) {
+		//	return false;
+		//}
 		scanKeys();						// read in and store keys
 		DetermineChar();		// determines character based on key scanned in
 		if (outputChar != ' ') {		// if input is determined
@@ -825,6 +835,7 @@ int CheckIndexBackward(int index) {
 
 void LockDoor() {
 	int step = 0, i = 0;
+	ST7735_DrawString(2, 7, "Locking Door...", ST7735_WHITE);
 	/* Iterates forward through (half cycle x gear ratio) */
 	for (i = 0; i < (32 * 64); i++) {
 		step = CheckIndexForward(step);		//sets index to appropriate value
@@ -837,6 +848,7 @@ void LockDoor() {
 
 void UnlockDoor() {
 	int step = 0, i = 0;
+	ST7735_DrawString(2, 7, "Unlocking Door...", ST7735_WHITE);
 	/* Iterates forward through (half cycle x gear ratio) */
 	for (i = 0; i < (32 * 32); i++) {
 		step = CheckIndexBackward(step);	//sets index to appropriate value
@@ -910,11 +922,8 @@ void DisplaySensorStatus() {
 		WriteClosed(104, 75);
 	}
 
-	while (1) {
+	while (!MenuButtonPressed()) {
 		WDT_A_clearTimer();	// clear watch dog timer
-		if (MenuButtonPressed()) {
-			return;
-		}
 		tempDoor = isDoorOpen;
 		tempWindow = isWindowOpen;
 		CheckSensorStatus();
@@ -969,6 +978,29 @@ void ChangePassword() {
 	ST7735_FillRect(0, 16, 160, 112, ST7735_BLACK);	//clear area below date time info
 }
 
+void DisplayRecordsLogMenu() {
+	ST7735_FillRect(0, 16, 160, 94, ST7735_BLACK);//clear area below date time info
+
+	ST7735_DrawString(2, 4, "1: View Alarm Info", ST7735_WHITE);
+	ST7735_DrawString(2, 5, "2: View Arm/Dis Info", ST7735_WHITE);
+
+	while (!MenuButtonPressed()) {
+		WDT_A_clearTimer();				// clear watch dog timer
+		scanKeys();						// read in and store keys
+		DetermineChar();		// determines character based on key scanned in
+		if (outputChar != ' ') {		// if input is determined
+			switch (outputChar) {
+			case '1':
+				//View Alarm Info
+				break;
+			case '2':
+				//View Arming Disarming Info
+				break;
+			}
+		}
+	}
+}
+
 /* Timer32 ISR */
 void T32_INT1_IRQHandler(void) {
 	MAP_Timer32_clearInterruptFlag(TIMER32_BASE);
@@ -982,7 +1014,11 @@ void T32_INT1_IRQHandler(void) {
 			if (BuzzerIterations >= 100) {
 				BuzzerShortDelay ?
 						(BuzzerShortDelay = false) : (BuzzerShortDelay = true);
-				ToggleAlarmLED();
+				LEDIterations++;
+				if (LEDIterations >= 10) {
+					LEDIterations = 0;
+					ToggleAlarmLED();
+				}
 				BuzzerIterations = 0;
 			}
 			BuzzerIterations++;
@@ -1017,7 +1053,7 @@ int main(void) {
 	Clock_Init48MHz();
 	MAP_CS_initClockSignal(CS_SMCLK, CS_HFXTCLK_SELECT, CS_CLOCK_DIVIDER_4);// set SMCLK to 12 MHz
 	ST7735_InitR(INITR_REDTAB);
-	ST7735_FillScreen(0x0000);            // set screen to black
+	ST7735_FillScreen(0x0000);   // set screen to black
 	ST7735_SetRotation(3);				  // rotate screen 270 deg
 
 	/* Initialize Keypad */
@@ -1029,7 +1065,7 @@ int main(void) {
 
 	/* Initialize RTC */
 	I2C_Init();
-	WriteRTC();
+	//WriteRTC();
 
 	/* Initialize Alarm */
 	StatusLEDInit();
@@ -1052,6 +1088,8 @@ int main(void) {
 
 	/* Initialize Watch Dog Timer */
 	WDTInit();
+
+	SysTick_Delay(1000);
 
 	/* Display Home Screen */
 	ST7735_DrawFastHLine(0, 14, 160, ST7735_WHITE);
@@ -1083,18 +1121,14 @@ int main(void) {
 				/* Display Sensor Status' */
 			case '3':
 				DisplaySensorStatus();
-				ST7735_FillScreen(0x0000);            // set screen to black
+				ST7735_FillRect(0, 16, 160, 112, ST7735_BLACK);//clear area below date time info
 				DisplayMenu();
 				break;
 
 				/* Lock or Unlock Door */
 			case '4':
 				if (PasswordCheck("Enter 4 Digit Password")) {
-					if (isDoorLocked) {
-						UnlockDoor();
-					} else {
-						LockDoor();
-					}
+					isDoorLocked ? (UnlockDoor()) : (LockDoor());
 				}
 				DisplayMenu();
 				break;
@@ -1104,6 +1138,12 @@ int main(void) {
 				if (PasswordCheck("Enter Current Password")) {
 					ChangePassword();
 				}
+				DisplayMenu();
+				break;
+
+				/*Show Flash Memory */
+			case '6':
+				DisplayRecordsLogMenu();
 				DisplayMenu();
 				break;
 			}
