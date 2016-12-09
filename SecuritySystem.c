@@ -200,6 +200,12 @@ void WDTInit() {
 	WDT_A_startTimer();
 }
 
+void SolenoidInit() {
+	P6SEL0 &= ~BIT0;
+	P6SEL1 &= ~BIT0;
+	P6DIR |= BIT0;
+}
+
 /* Toggles Alarm LED */
 void ToggleAlarmLED() {
 	P1OUT ^= BIT0;
@@ -662,12 +668,13 @@ void setDateTimeInfo() {
 void DisplayMenu() {
 	ST7735_FillRect(0, 16, 160, 94, ST7735_BLACK);//clear area below date time info
 
-	ST7735_DrawString(2, 4, "1: Set Date/Time Info", ST7735_WHITE);
-	ST7735_DrawString(2, 5, "2: Arm/Disarm Alarm", ST7735_WHITE);
-	ST7735_DrawString(2, 6, "3: View Sensor Status", ST7735_WHITE);
-	ST7735_DrawString(2, 7, "4: Lock/Unlock Door", ST7735_WHITE);
-	ST7735_DrawString(2, 8, "5: Change Password", ST7735_WHITE);
-	ST7735_DrawString(2, 9, "6: View Records Log", ST7735_WHITE);
+	ST7735_DrawString(2, 3, "1: Set Date/Time Info", ST7735_WHITE);
+	ST7735_DrawString(2, 4, "2: Arm/Disarm Alarm", ST7735_WHITE);
+	ST7735_DrawString(2, 5, "3: View Sensor Status", ST7735_WHITE);
+	ST7735_DrawString(2, 6, "4: Lock/Unlock Door", ST7735_WHITE);
+	ST7735_DrawString(2, 7, "5: Change Password", ST7735_WHITE);
+	ST7735_DrawString(2, 8, "6: View Records Log", ST7735_WHITE);
+	ST7735_DrawString(2, 9, "#: Ring Doorbell", ST7735_WHITE);
 }
 
 int BcdToDecimal(uint8_t hex) {
@@ -799,12 +806,9 @@ bool PasswordCheck(char message[22]) {
 			minuteTimer = minutes;
 		}
 		WDT_A_clearTimer();				// clear watch dog timer
-		//if (MenuButtonPressed()) {
-		//	return false;
-		//}
 		scanKeys();						// read in and store keys
 		DetermineChar();		// determines character based on key scanned in
-		if (outputChar != ' ') {		// if input is determined
+		if (outputChar != ' ' && outputChar != '*') {		// if input is determined
 			passWordIndex = StoreAttemptChar(outputChar, passWordIndex);
 			ST7735_DrawCharS(x, 70, outputChar, ST7735_WHITE, ST7735_BLACK, 2);	// print key input
 			x += 15;
@@ -1001,6 +1005,16 @@ void DisplayRecordsLogMenu() {
 	}
 }
 
+void ActivateSolenoid(void) {
+	int i;
+	for (i = 0; i < 2; i++) {
+		P6OUT |= BIT0;
+		SysTick_Delay(20);
+		P6OUT &= ~BIT0;
+		SysTick_Delay(100);
+	}
+}
+
 /* Timer32 ISR */
 void T32_INT1_IRQHandler(void) {
 	MAP_Timer32_clearInterruptFlag(TIMER32_BASE);
@@ -1086,6 +1100,9 @@ int main(void) {
 	/* Initialize PIR Sensor */
 	GPIO_setAsInputPin(GPIO_PORT_P3, GPIO_PIN5); //set P3.5 as input
 
+	/* Initialize Solenoid */
+	SolenoidInit();
+
 	/* Initialize Watch Dog Timer */
 	WDTInit();
 
@@ -1121,7 +1138,7 @@ int main(void) {
 				/* Display Sensor Status' */
 			case '3':
 				DisplaySensorStatus();
-				ST7735_FillRect(0, 16, 160, 112, ST7735_BLACK);//clear area below date time info
+				ST7735_FillRect(0, 16, 160, 112, ST7735_BLACK);	//clear area below date time info
 				DisplayMenu();
 				break;
 
@@ -1145,6 +1162,10 @@ int main(void) {
 			case '6':
 				DisplayRecordsLogMenu();
 				DisplayMenu();
+				break;
+
+			case '#':
+				ActivateSolenoid();
 				break;
 			}
 		}
